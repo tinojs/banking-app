@@ -167,24 +167,32 @@ router.post(
 );
 
 router.get("/transactions", requireAuth, async (req, res) => {
-    const limit = Math.min(parseInt(req.query.limit || "50", 10), 200);
+  try {
+    const raw = Number.parseInt(req.query.limit ?? "50", 10);
+    const limit = Number.isFinite(raw) ? Math.min(Math.max(raw, 1), 200) : 50;
 
     const [[acc]] = await pool.execute(
-        "SELECT id FROM accounts WHERE user_id = ?",
-        [req.user.id]
+      "SELECT id FROM accounts WHERE user_id = ?",
+      [req.user.id]
     );
     if (!acc) return res.status(404).json({ error: "Account not found" });
 
-    const [rows] = await pool.execute(
-        `SELECT id, type, amount_cents, counterparty_account_id, note, created_at
-     FROM transactions
-     WHERE account_id = ?
-     ORDER BY id DESC
-     LIMIT ?`,
-        [acc.id, limit]
+    // IMPORTANT: LIMIT is injected after strict validation above
+    const [rows] = await pool.query(
+      `SELECT id, type, amount_cents, counterparty_account_id, note, created_at
+       FROM transactions
+       WHERE account_id = ?
+       ORDER BY id DESC
+       LIMIT ${limit}`,
+      [acc.id]
     );
 
     res.json({ items: rows });
+  } catch (err) {
+    console.error("GET /transactions error:", err);
+    res.status(500).json({ error: "Failed to load transactions" });
+  }
 });
+
 
 module.exports = { bankRouter: router };
